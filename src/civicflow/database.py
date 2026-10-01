@@ -124,6 +124,22 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
     last_error TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS jobs_due ON scheduled_jobs(status, run_at, lease_until);
+CREATE TABLE IF NOT EXISTS sample_movements (
+    movement_id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    request_key TEXT NOT NULL,
+    request_digest TEXT NOT NULL,
+    sample_id TEXT NOT NULL,
+    counterpart_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    quantity_minor INTEGER NOT NULL,
+    unit TEXT NOT NULL,
+    reference TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    UNIQUE(scope, request_key)
+);
+CREATE INDEX IF NOT EXISTS sample_movements_sample ON sample_movements(sample_id, kind);
 """
 
 
