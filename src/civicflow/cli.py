@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 
 from .application import CivicFlow
+from . import demo_arch
 from .cases import CaseService
 from .security import AccessContext
 
@@ -34,11 +35,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--now", default=None, help="测试或演示使用的固定时间")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("demo")
+    commands.add_parser("demo-arch")
     commands.add_parser("verify")
     commands.add_parser("list-cases")
     args = parser.parse_args(argv)
     app = CivicFlow.open(Path(args.db), fixed_now=args.now)
     if args.command == "demo": emit(demo(app))
+    elif args.command == "demo-arch": emit(demo_arch.run(app))
     elif args.command == "verify": emit(app.verify())
     elif args.command == "list-cases": emit(CaseService(app.repository).list_current(AccessContext.system("cli")))
     return 0

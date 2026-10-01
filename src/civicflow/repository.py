@@ -14,6 +14,14 @@ from .jsonutil import canonical_json
 from .timeutil import Clock, canonical_instant
 
 
+def read_entity(connection, entity_type: str, entity_id: str) -> dict:
+    """在给定事务/连接内读取实体当前负载，不存在则报错。"""
+    row = connection.execute("SELECT * FROM entities WHERE entity_type=? AND entity_id=?", (entity_type, entity_id)).fetchone()
+    if not row:
+        raise NotFoundError(f"{entity_type}/{entity_id} 不存在")
+    return EntityRepository._row_to_dict(row)
+
+
 @dataclass(frozen=True)
 class EntityRepository:
     database: Database
@@ -57,6 +65,39 @@ class EntityRepository:
                 self.audit.append(connection, actor_id=actor, action="update", entity_type=entity_type, entity_id=entity_id, version=version, detail=changes)
                 return self._row_to_dict(connection.execute("SELECT * FROM entities WHERE entity_type=? AND entity_id=?", (entity_type, entity_id)).fetchone())
             return self.idempotency.execute(connection, scope=f"update:{entity_type}:{entity_id}", request_key=request_key, request={"changes": changes, "expected_version": expected_version}, operation=operation)
+
+    def insert_within(self, connection, entity_type: str, payload: dict, *, actor: str, request_key: str, entity_id: str | None = None) -> dict:
+        """在调用方已开启的事务内创建实体，版本与审计链与普通写入保持一致。"""
+        require_safe(entity_type, "实体类型")
+        if entity_id is None:
+            entity_id = new_id(entity_type)
+        now = self.clock.now()
+        state = str(payload.get("state", "draft"))
+        body = dict(payload); body["state"] = state
+        connection.execute("INSERT INTO entities(entity_type,entity_id,version,state,payload_json,created_at,updated_at,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?)", (entity_type, entity_id, 1, state, canonical_json(body), now, now, actor, actor))
+        connection.execute("INSERT INTO entity_versions(entity_type,entity_id,version,state,payload_json,valid_from,actor_id,request_key) VALUES(?,?,?,?,?,?,?,?)", (entity_type, entity_id, 1, state, canonical_json(body), now, actor, request_key))
+        self.audit.append(connection, actor_id=actor, action="create", entity_type=entity_type, entity_id=entity_id, version=1, detail=body)
+        return self._row_to_dict(connection.execute("SELECT * FROM entities WHERE entity_type=? AND entity_id=?", (entity_type, entity_id)).fetchone())
+
+    def update_within(self, connection, entity_type: str, entity_id: str, changes: dict, *, actor: str, expected_version: int, request_key: str) -> dict:
+        """在调用方已开启的事务内更新实体，沿用乐观版本与版本历史。"""
+        if not changes:
+            raise ValidationError("修改内容不能为空")
+        row = connection.execute("SELECT * FROM entities WHERE entity_type=? AND entity_id=?", (entity_type, entity_id)).fetchone()
+        if not row:
+            raise NotFoundError(f"{entity_type}/{entity_id} 不存在")
+        if row["version"] != expected_version:
+            raise ConflictError(f"版本冲突，当前为 {row['version']}")
+        payload = json.loads(row["payload_json"]); payload.update(changes)
+        version = expected_version + 1
+        state = str(payload.get("state", row["state"]))
+        now = self.clock.now()
+        changed = connection.execute("UPDATE entities SET version=?,state=?,payload_json=?,updated_at=?,updated_by=? WHERE entity_type=? AND entity_id=? AND version=?", (version, state, canonical_json(payload), now, actor, entity_type, entity_id, expected_version)).rowcount
+        if changed != 1:
+            raise ConflictError("并发修改导致版本变化")
+        connection.execute("INSERT INTO entity_versions(entity_type,entity_id,version,state,payload_json,valid_from,actor_id,request_key) VALUES(?,?,?,?,?,?,?,?)", (entity_type, entity_id, version, state, canonical_json(payload), now, actor, request_key))
+        self.audit.append(connection, actor_id=actor, action="update", entity_type=entity_type, entity_id=entity_id, version=version, detail=changes)
+        return self._row_to_dict(connection.execute("SELECT * FROM entities WHERE entity_type=? AND entity_id=?", (entity_type, entity_id)).fetchone())
 
     def get(self, entity_type: str, entity_id: str) -> dict:
         with self.database.connect() as connection:

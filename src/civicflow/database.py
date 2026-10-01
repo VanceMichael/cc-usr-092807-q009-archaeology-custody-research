@@ -124,6 +124,89 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
     last_error TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS jobs_due ON scheduled_jobs(status, run_at, lease_until);
+CREATE TABLE IF NOT EXISTS sample_lineage_events (
+    event_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    sample_id TEXT NOT NULL,
+    parent_id TEXT,
+    child_id TEXT,
+    delta_amount TEXT NOT NULL,
+    uom TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    transfer_id TEXT,
+    request_id TEXT,
+    occurred_at TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    request_key TEXT NOT NULL,
+    affects_balance INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS lineage_sample ON sample_lineage_events(sample_id, occurred_at, event_id);
+CREATE INDEX IF NOT EXISTS lineage_parent ON sample_lineage_events(parent_id, occurred_at);
+CREATE UNIQUE INDEX IF NOT EXISTS lineage_request_key ON sample_lineage_events(request_key);
+CREATE TABLE IF NOT EXISTS lineage_requests (
+    request_key TEXT PRIMARY KEY,
+    response_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sample_scans (
+    scan_id TEXT PRIMARY KEY,
+    transfer_id TEXT NOT NULL,
+    package_code TEXT NOT NULL,
+    sample_id TEXT NOT NULL,
+    observed_code TEXT NOT NULL,
+    observed_weight TEXT,
+    weight_uom TEXT,
+    scanned_by TEXT NOT NULL,
+    scanned_at TEXT NOT NULL,
+    confirmation_json TEXT NOT NULL,
+    UNIQUE(transfer_id, package_code, sample_id)
+);
+CREATE INDEX IF NOT EXISTS scans_sample ON sample_scans(sample_id, scanned_at);
+CREATE TABLE IF NOT EXISTS quarantine_cases (
+    quarantine_id TEXT PRIMARY KEY,
+    subject_type TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    expected_json TEXT NOT NULL,
+    observed_json TEXT NOT NULL,
+    raised_by TEXT NOT NULL,
+    raised_at TEXT NOT NULL,
+    state TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS quarantine_open ON quarantine_cases(subject_type, subject_id, state);
+CREATE TABLE IF NOT EXISTS access_grants (
+    grant_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    material_scope TEXT NOT NULL,
+    granted_by TEXT NOT NULL,
+    valid_from TEXT NOT NULL,
+    valid_until TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(project_id, subject_id, purpose, material_scope)
+);
+CREATE TABLE IF NOT EXISTS monitoring_findings (
+    finding_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    subject_type TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    detail_json TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS findings_open ON monitoring_findings(subject_type, subject_id, kind);
+CREATE TABLE IF NOT EXISTS storage_readings (
+    reading_id TEXT PRIMARY KEY,
+    storage_id TEXT NOT NULL,
+    temperature_c TEXT,
+    humidity_pct TEXT,
+    read_at TEXT NOT NULL,
+    recorded_by TEXT NOT NULL,
+    state TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS storage_readings_lookup ON storage_readings(storage_id, read_at);
 """
 
 
